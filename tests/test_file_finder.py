@@ -4,7 +4,7 @@ import os
 import sys
 import tempfile
 
-from fileclicker import existing_file_iter
+from fileclicker.file_finder import existing_file_iter
 
 
 @contextlib.contextmanager

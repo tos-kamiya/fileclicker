@@ -1,6 +1,6 @@
 import unittest
 
-from fileclicker import pathlike_iter
+from fileclicker.file_finder import pathlike_iter
 
 
 class PathlikeIterTest(unittest.TestCase):

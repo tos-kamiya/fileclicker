@@ -1,4 +1,5 @@
 from typing import Iterable, List, Optional
+from dataclasses import dataclass, field
 
 import re
 import shlex
@@ -8,8 +9,8 @@ import sys
 from docopt import docopt
 import portpicker
 
-from . import existing_file_iter
-from . import justpy_with_browser
+from .file_finder import existing_file_iter
+from .justpy_with_browser import justpy_with_browser
 
 
 def read_lines(files: Iterable[str]) -> List[str]:
@@ -49,22 +50,19 @@ def build_command_line(command: str, file_name: str, pattern: Optional[re.Patter
     return cmd
 
 
-ROW_CLASSES = 'p-1 font-mono'
-FILE_SPAN_CLASSES = 'p-1 bg-gray-200 hover:bg-gray-400 text-black rounded-full'
-FILE_SELECTED_SPAN_CLASSES = 'p-1 bg-gray-600 hover:bg-gray-700 border-1 border-black text-white rounded-full'
-FILE_UNSELECTED_MARK = '\u2610'
-FILE_SELECTED_MARK = '\u2611'
+@dataclass
+class AppConfig:
+    lines: List[str] = field(default_factory=list)
+    pattern: Optional[re.Pattern] = None
+    dry_run: bool = False
+    command: Optional[str] = None
+    toggle: bool = False
+    max_capture_number: int = -1
 
-app_config = {
-    'lines': None,
-    'pattern': None,
-    'dry_run': False,
-    'command': None,
-    'toggle': False,
-}
+app_config = AppConfig()
+
 
 app_state = {
-    'max_caputure_number': -1,
     'item_selection': dict(),  # filename -> bool
 }
 
@@ -75,12 +73,12 @@ def setup_config(
         command: Optional[str] = None,
         toggle: bool = False,
         dry_run: bool = False) -> None:
-    app_config['lines'] = list(lines)
-    app_config['pattern'] = pattern
-    app_config['dry_run'] = dry_run
-    app_config['command'] = command
-    app_config['toggle'] = toggle
-
+    app_config.lines = list(lines)
+    app_config.pattern = pattern
+    app_config.dry_run = dry_run
+    app_config.command = command
+    app_config.toggle = toggle
+    
     max_capture_number = -1
     if command:
         for m in re.finditer(r'{(\d+)}', command):
@@ -88,7 +86,29 @@ def setup_config(
             if n < 0:
                 sys.exit("Error: capture number should be zero or positive: `{%s}`" % m.group(1))
             max_capture_number = max(max_capture_number, n)
-    app_state['max_caputure_number'] = max_capture_number
+    app_config.max_capture_number = max_capture_number
+
+
+def exec_for_file(file_name: str) -> None:
+    A = app_config
+    if A.command is None:
+        print("%s" % file_name)
+    else:
+        cmd = build_command_line(A.command, file_name, A.pattern, A.max_capture_number)
+
+        if A.dry_run:
+            print(shlex.join(cmd))
+        else:
+            exit_code = subprocess.call(cmd)
+            if exit_code != 0:
+                sys.exit(exit_code)
+
+
+ROW_CLASSES = 'p-1 font-mono'
+FILE_SPAN_CLASSES = 'p-1 bg-gray-200 hover:bg-gray-400 text-black rounded-full'
+FILE_SELECTED_SPAN_CLASSES = 'p-1 bg-gray-600 hover:bg-gray-700 border-1 border-black text-white rounded-full'
+FILE_UNSELECTED_MARK = '\u2610'
+FILE_SELECTED_MARK = '\u2611'
 
 
 def page_builder():
@@ -103,22 +123,21 @@ def page_builder():
             else:
                 jp.Span(a=dest, text=p)
 
-    pattern = app_config['pattern']
-    toggle = app_config['toggle']
-    if toggle:
+    A = app_config
+    if A.toggle:
         item_selection = app_state['item_selection']
     else:
         item_selection = dict()  # dummy
 
     wp = jp.WebPage()
-    for L in app_config['lines']:
+    for L in A.lines:
         d = jp.Div(a=wp, classes=ROW_CLASSES)
         last_p = 0
         for p, k, s in existing_file_iter(L):
-            if k == 'file' and (pattern is None or pattern.match(s)):
+            if k == 'file' and (A.pattern is None or A.pattern.match(s)):
                 if last_p < p:
                     add_span(d, L[last_p:p])
-                if toggle:
+                if A.toggle:
                     b = jp.Span(a=d, text=FILE_UNSELECTED_MARK + s, classes=FILE_SPAN_CLASSES)
                     item_selection[s] = False
                     b.on('click', file_action_toggle)
@@ -137,48 +156,34 @@ def page_builder():
 
 
 def file_action(item, msg):
-    assert not app_config['toggle']
-
-    command = app_config['command']
-    pattern = app_config['pattern']
-    dry_run = app_config['dry_run']
-    max_capture_number = app_state['max_caputure_number']
+    assert not app_config.toggle
 
     file_name = item.text
-    if command is None:
-        print("%s" % file_name)
-    else:
-        cmd = build_command_line(command, file_name, pattern, max_capture_number)
-
-        if dry_run:
-            print(shlex.join(cmd))
-        else:
-            exit_code = subprocess.call(cmd)
-            if exit_code != 0:
-                sys.exit(exit_code)
+    exec_for_file(file_name)
 
 
 def file_action_toggle(item, msg):
-    assert app_config['toggle']
+    assert app_config.toggle
 
     item_selection = app_state['item_selection']
 
     text = item.text
     file_check, file_name = text[0], text[1:]
+
     checked = file_check == FILE_SELECTED_MARK
     checked = not checked
+
+    item_selection[file_name] = checked
     if checked:
         file_check = FILE_SELECTED_MARK
-        item_selection[file_name] = True
         item.classes = FILE_SELECTED_SPAN_CLASSES
     else:
         file_check = FILE_UNSELECTED_MARK
-        item_selection[file_name] = False
         item.classes = FILE_SPAN_CLASSES
     item.text = file_check + file_name
 
 
-__doc__ = """Let filenames clickable.
+__doc__ = """Identify filenames in text and show the text as a clickable page.
 
 Usage:
   fileclicker [options] <file>...
@@ -193,34 +198,16 @@ Options:
 
 def main():
     args = docopt(__doc__)
-    files = args['<file>']
     pattern_str = args['-p']
     pattern = re.compile(pattern_str) if pattern_str is not None else None
-    command = args['-c']
-    dry_run = args['-n']
-    toggle = args['-t']
 
-    lines = read_lines(files)
-    setup_config(lines, pattern=pattern, command=command, toggle=toggle, dry_run=dry_run)
+    lines = read_lines(args['<file>'])
+    setup_config(lines, pattern=pattern, command=args['-c'], toggle=args['-t'], dry_run=args['-n'])
 
     justpy_with_browser(page_builder, port=portpicker.pick_unused_port())
 
-    if toggle:
-        max_capture_number = app_state['max_caputure_number']
+    if app_config.toggle:
         item_selection = app_state['item_selection']
-
         for file_name, selected in item_selection.items():
-            if not selected:
-                continue
-
-            if command is None:
-                print("%s" % file_name)
-            else:
-                cmd = build_command_line(command, file_name, pattern, max_capture_number)
-
-                if dry_run:
-                    print(shlex.join(cmd))
-                else:
-                    exit_code = subprocess.call(cmd)
-                    if exit_code != 0:
-                        sys.exit(exit_code)
+            if selected:
+                exec_for_file(file_name)
