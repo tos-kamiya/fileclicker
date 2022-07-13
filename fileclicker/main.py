@@ -94,6 +94,15 @@ def setup_config(
 def page_builder():
     import justpy as jp
 
+    def add_span(dest, text):
+        for p in re.split(r'( )', text):
+            if not p:
+                continue
+            if p[0] == ' ':
+                jp.Space(a=dest, num=len(p))
+            else:
+                jp.Span(a=dest, text=p)
+
     pattern = app_config['pattern']
     toggle = app_config['toggle']
     if toggle:
@@ -108,7 +117,7 @@ def page_builder():
         for p, k, s in existing_file_iter(L):
             if k == 'file' and (pattern is None or pattern.match(s)):
                 if last_p < p:
-                    jp.Span(a=d, text=L[last_p:p])
+                    add_span(d, L[last_p:p])
                 if toggle:
                     b = jp.Span(a=d, text=FILE_UNSELECTED_MARK + s, classes=FILE_SPAN_CLASSES)
                     item_selection[s] = False
@@ -119,11 +128,11 @@ def page_builder():
                 last_p = p + len(s)
             else:
                 if last_p < p + len(s):
-                    jp.Span(a=d, text=L[last_p:p + len(s)])
+                    add_span(d, L[last_p:p + len(s)])
                 last_p = p + len(s)
         else:
             if last_p < len(L):
-                jp.Span(a=d, text=L[last_p:])
+                add_span(d, L[last_p:])
     return wp
 
 
