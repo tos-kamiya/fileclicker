@@ -189,10 +189,10 @@ Usage:
   fileclicker [options] <file>...
 
 Options:
-  -p PATTERN    Pattern to filter / capture files.
-  -c COMMAND    Command line for the clicked file. `{0}` is argument.
-  -n            Dry-run. Print commands without running.
-  -t            Toggle selection mode.
+  -p PATTERN        Pattern to filter / capture files.
+  -c COMMAND        Command line for the clicked file. `{0}` is argument.
+  -n --dry-run      Print commands without running.
+  -x --check        Select files with check box.
 """
 
 
@@ -202,7 +202,7 @@ def main():
     pattern = re.compile(pattern_str) if pattern_str is not None else None
 
     lines = read_lines(args['<file>'])
-    setup_config(lines, pattern=pattern, command=args['-c'], toggle=args['-t'], dry_run=args['-n'])
+    setup_config(lines, pattern=pattern, command=args['-c'], toggle=args['--check'], dry_run=args['--dry-run'])
 
     justpy_with_browser(page_builder, port=portpicker.pick_unused_port())
 
