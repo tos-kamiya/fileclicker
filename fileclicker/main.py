@@ -7,10 +7,8 @@ import subprocess
 import sys
 
 from docopt import docopt
-import portpicker
 
 from .file_finder import existing_file_iter
-from .justpy_with_browser import justpy_with_browser
 
 
 def read_lines(files: Iterable[str]) -> List[str]:
@@ -187,16 +185,78 @@ def file_action_toggle(item, msg):
     item.text = file_check + file_name
 
 
+def html_builder(lines: List[str], pattern: Optional[re.Pattern] = None):
+    import html
+    import htmlBuilder.tags as ht
+    from htmlBuilder.attributes import Href, Style
+
+    def span_iter(text):
+        for p in re.split(r"( )", text):
+            if not p:
+                continue
+            if p[0] == " ":
+                yield ht.Span([], "&nbsp;" * len(p))
+            else:
+                yield ht.Span([], html.escape(p))
+
+    divs = []
+    for L in lines:
+        spans = []
+        last_p = 0
+        for p, k, s in existing_file_iter(L):
+            if k == "file" and (pattern is None or pattern.match(s)):
+                if last_p < p:
+                    spans.extend(span_iter(L[last_p:p]))
+                spans.append(ht.A([Href(s)], html.escape(s)))
+                last_p = p + len(s)
+            else:
+                if last_p < p + len(s):
+                    spans.extend(span_iter(L[last_p : p + len(s)]))
+                last_p = p + len(s)
+        else:
+            if last_p < len(L):
+                spans.extend(span_iter(L[last_p:]))
+        divs.append(ht.Div([], *spans))
+
+    return ht.Html([Style(font='monospace')], *divs).render(doctype=True, pretty=True)
+
+
+def markdown_builder(lines: List[str], pattern: Optional[re.Pattern] = None):
+    divs = []
+    for L in lines:
+        spans = []
+        last_p = 0
+        for p, k, s in existing_file_iter(L):
+            if k == "file" and (pattern is None or pattern.match(s)):
+                if last_p < p:
+                    spans.extend(L[last_p:p])
+                spans.append("[%s](%s)" % (s, s))
+                last_p = p + len(s)
+            else:
+                if last_p < p + len(s):
+                    spans.extend(L[last_p : p + len(s)])
+                last_p = p + len(s)
+        else:
+            if last_p < len(L):
+                spans.extend(L[last_p:])
+        divs.append(''.join(spans) + '  ')
+
+    return '\n'.join(divs)
+
+
 __doc__ = """Identify filenames in text and show the text as a clickable page.
 
 Usage:
-  fileclicker [options] <file>...
+  fileclicker [-p PATTERN|-c COMMAND|-n|-x] <file>...
+  fileclicker [-M|-H|-p PATTERN] <file>...
 
 Options:
   -p PATTERN        Pattern to filter / capture files.
   -c COMMAND        Command line for the clicked file. `{0}` is argument.
   -n --dry-run      Print commands without running.
-  -x --check        Select files with check box.
+  -x --check        Check mode. Select files with check box.
+  -M --markdown     Markdown mode. Output markdown text.
+  -H --html         HTML mode. Output html text.
 """
 
 
@@ -206,7 +266,18 @@ def main():
     pattern = re.compile(pattern_str) if pattern_str is not None else None
 
     lines = read_lines(args["<file>"])
+
+    if args['--markdown']:
+        print(markdown_builder(lines, pattern=pattern))
+        return
+    elif args['--html']:
+        print(html_builder(lines, pattern=pattern))
+        return
+
     setup_config(lines, pattern=pattern, command=args["-c"], toggle=args["--check"], dry_run=args["--dry-run"])
+
+    from .justpy_with_browser import justpy_with_browser
+    import portpicker
 
     justpy_with_browser(page_builder, port=portpicker.pick_unused_port())
 
